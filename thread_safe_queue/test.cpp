@@ -1,5 +1,10 @@
-#include "thread_safe_queue.cpp"
+#include "thread_safe_queue.hpp"
 #include <unistd.h>
+#include <stdio.h>
+#include <thread>
+#include <iostream>
+
+using namespace std;
 ThreadSafe_Queue<int> g_queue;
 int g_index = 10;
 
@@ -28,10 +33,10 @@ void thread_Fuc2()
 
 int main()
 {
-    thread thd(thread_Fuc);
+    std::thread thd(thread_Fuc);
     thd.detach();
 
-    thread thd2(thread_Fuc2);
+    std::thread thd2(thread_Fuc2);
     thd2.detach();
 
     int a;
