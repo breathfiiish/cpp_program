@@ -9,10 +9,9 @@ public:
         {
             m_file_list.push_back("");
         }
-    }
-
-    void initFileWriter()
-    {
+        checkFile();
+        m_write_stream.reset(new std::ofstream());
+        m_write_stream->open(m_file_path+"/"+kAutoHalLogFileName, std::ofstream::out | std::ofstream::app);
 
     }
 
@@ -64,7 +63,7 @@ public:
         m_write_stream->open(m_file_path+"/"+kAutoHalLogFileName, std::ofstream::out | std::ofstream::app);
     }
 
-    void writer(std::string&& str)
+    void writer(std::string str)
     {
         // 初始化时没有autohallog日志 或者 写入要大于文件最大值时 做一次文件切片滚动
         if(m_file_write_offset < 0 || m_file_write_offset + str.length() > kFileSize)
@@ -158,8 +157,6 @@ public:
                             m_file_write_offset = -1;
                         }
                         fileIn.close();
-                        m_write_stream.reset(new std::ofstream());
-                        m_write_stream->open(m_file_path+"/"+kAutoHalLogFileName, std::ofstream::out | std::ofstream::app);
 
                     }
                     // else {
@@ -188,3 +185,88 @@ private:
     std::vector<std::string> m_file_list;
 
 };
+
+
+
+
+
+//namespace byd_auto_hal {
+/* Returns microseconds since epoch */
+static uint64_t timestamp_now()
+{
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+}
+
+class AutoHalLogWriter {
+public:
+    AutoHalLogWriter() : /*m_pBuffer(new RingBuffer(1000))
+    , m_pFileWriter(new FileWriter("/data/logs/autohallogs","autohallog"))
+    , */m_last_write_time(timestamp_now())
+    {
+        logFlag = true;
+        // m_pBuffer.reset(new RingBuffer(1000));
+        // m_pFileWriter.reset(new FileWriter("/data/logs/autohallogs","autohallog"));
+        m_pBuffer = new RingBuffer(100);
+        m_pFileWriter = new FileWriter("/data/logs/autohallogs","autohallog");
+        m_write_thread = std::thread(&AutoHalLogWriter::logWriteThread, this);
+    }
+    ~AutoHalLogWriter()
+    {
+        logFlag = false;
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
+        m_write_thread.join();
+        // m_pBuffer.release();
+        // m_pFileWriter.release();
+        if(m_pBuffer != nullptr)
+        {
+            delete m_pBuffer;
+            m_pBuffer = nullptr;
+        }
+        if(m_pFileWriter != nullptr)
+        {
+            delete m_pFileWriter;
+            m_pFileWriter = nullptr;
+        }
+        
+    }
+
+    void add(std::string logline)
+    {
+        fprintf(stderr, "%s", "add log\n");
+        if(m_pBuffer == nullptr)
+        {
+            fprintf(stderr, "%s", "Error Buffer\n");
+        }
+        m_pBuffer->push(logline);
+    }
+
+    void logWriteThread()
+    {
+        while(logFlag)
+        {
+            if(timestamp_now()-m_last_write_time > kDurationTime)
+            {
+                m_last_write_time = timestamp_now();
+                std::string logline;
+                while(m_pBuffer->tryPop(logline))
+                {
+                    fprintf(stderr, "Log Write start\n");
+                    m_pFileWriter->writer(logline);
+                    fprintf(stderr, "Log Write end\n");
+                }
+                //fprintf(stderr, "Log Write time: %lu", m_last_write_time);
+            }
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
+        }
+    }
+private:
+    bool logFlag;
+    std::thread m_write_thread;
+    //std::unique_ptr < RingBuffer >  m_pBuffer;
+    RingBuffer* m_pBuffer = nullptr;
+    FileWriter* m_pFileWriter = nullptr;
+    //std::unique_ptr < FileWriter > m_pFileWriter;
+    uint64_t m_last_write_time;
+    
+};
+//} // namesapce byd_auto_hal
