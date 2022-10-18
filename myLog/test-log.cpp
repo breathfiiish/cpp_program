@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#include "android/logger_write.h"
+//#include "android/logger_write.h"
 
 #define LOG_TAG "AutoHAL::AutoHWI"
 
@@ -76,7 +76,7 @@ int main(){
     property_set("sys.autohal.loglevel", "2");
 
     ALOGD0("MY ALOGD0 TEST string %s, MY TEST int %d","hu.xiyu",10086);
-    ALOGD("MY ALOGD TEST string %s, MY TEST int %d","hu.xiyu",10086);
+    //ALOGD("MY ALOGD TEST string %s, MY TEST int %d","hu.xiyu",10086);
     ALOGD1("MY ALOGD1 TEST string %s, MY TEST int %d","hu.xiyu",10086);
     ALOGD2("MY ALOGD2 TEST string %s, MY TEST int %d","hu.xiyu",10086);
     ALOGD3("MY ALOGD3 TEST string %s, MY TEST int %d","hu.xiyu",10086);
@@ -90,7 +90,7 @@ int main(){
         if(flag =='q')
         {
             ALOGD0("MY ALOGD0 TEST string %s, MY TEST int %d","hu.xiyu",10086);
-            ALOGD("MY ALOGD TEST string %s, MY TEST int %d","hu.xiyu",10086);
+            //ALOGD("MY ALOGD TEST string %s, MY TEST int %d","hu.xiyu",10086);
             ALOGD1("MY ALOGD1 TEST string %s, MY TEST int %d","hu.xiyu",10086);
             ALOGD2("MY ALOGD2 TEST string %s, MY TEST int %d","hu.xiyu",10086);
             ALOGD3("MY ALOGD3 TEST string %s, MY TEST int %d","hu.xiyu",10086);
@@ -104,7 +104,7 @@ int main(){
     //autohalLogWriterStop();
 
     ALOGD0("MY ALOGD0 TEST string %s, MY TEST int %d","hu.xiyu",10086);
-    ALOGD("MY ALOGD TEST string %s, MY TEST int %d","hu.xiyu",10086);
+    //ALOGD("MY ALOGD TEST string %s, MY TEST int %d","hu.xiyu",10086);
     ALOGD1("MY ALOGD1 TEST string %s, MY TEST int %d","hu.xiyu",10086);
     ALOGD2("MY ALOGD2 TEST string %s, MY TEST int %d","hu.xiyu",10086);
     ALOGD3("MY ALOGD3 TEST string %s, MY TEST int %d","hu.xiyu",10086);

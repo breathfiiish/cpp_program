@@ -19,6 +19,20 @@
 #ifndef _LOGGER_WRITER_H_
 #define _LOGGER_WRITER_H_
 
+
+#include <errno.h>
+#include <inttypes.h>
+#include <libgen.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/time.h>
+
+#include <android-base/errno_restorer.h>
+#include <android-base/macros.h>
+#ifdef __BIONIC__
+#include <android/set_abort_message.h>
+#endif
+
 #include <string>
 #include <mutex>
 #include <fstream>
@@ -32,10 +46,57 @@
 #include <thread>
 #include <chrono>
 
+#if defined(__APPLE__)
+#include <pthread.h>
+#elif defined(__linux__) && !defined(__ANDROID__)
+#include <syscall.h>
+#elif defined(_WIN32)
+#include <windows.h>
+#endif
+
 
 std::string& GetDefaultTag();
 
+#define LOG_BUF_SIZE 1024
+
+
 namespace byd_auto_hal {
+
+#define AUTOLOG_DEBUG 3
+
+int autohal_log_to_file(int prio, const char* tag, const char* fmt, ...); 
+
+#define AUTO_CONDITION(cond)     (__builtin_expect((cond)!=0, 0))
+
+#ifndef AUTO_LOG
+#define AUTO_LOG(priority, tag, ...) \
+    autohal_log_to_file(priority, tag, __VA_ARGS__)
+#endif
+
+#ifndef AUTO_LOGD
+#define AUTO_LOGD(...) ((void)AUTO_LOG(0, LOG_TAG, __VA_ARGS__))
+#endif
+
+#ifndef AUTO_LOGD_IF
+#define AUTO_LOGD_IF(cond, ...) \
+    ( (AUTO_CONDITION(cond)) \
+    ? ((void)AUTO_LOG(0, LOG_TAG, __VA_ARGS__)) \
+    : (void)0 )
+#endif
+
+static uint64_t autohalGetThreadId() {
+#if defined(__BIONIC__)
+  return gettid();
+#elif defined(__APPLE__)
+  uint64_t tid;
+  pthread_threadid_np(NULL, &tid);
+  return tid;
+#elif defined(__linux__)
+  return syscall(__NR_gettid);
+#elif defined(_WIN32)
+  return GetCurrentThreadId();
+#endif
+}
 
 const int kLogFileCountMin = 1;
 const int kLogFileCountMax = 20;
@@ -83,7 +144,7 @@ public:
       std::lock_guard<std::mutex> lg(item.flag);
       item.logline = logline;
       item.written = 1;
-      fprintf(stderr, "RingBuffer push : %s", logline.c_str());
+      //fprintf(stderr, "RingBuffer push : %s", logline.c_str());
     }
 
     bool tryPop(std::string& logline) 
@@ -155,19 +216,21 @@ public:
         }
         rename((m_file_path+"/"+kAutoHalLogFileName).c_str(), \
                 (m_file_path+"/"+kAutoHalLogFileName+"."+"01").c_str());
+        m_file_list[1] = kAutoHalLogFileName+".01";
+        fprintf(stderr, "rename File from: %s to : %s \n", (m_file_path+"/"+kAutoHalLogFileName).c_str(), (m_file_path+"/"+kAutoHalLogFileName+".01").c_str());
 
-        DIR *dir = opendir(m_file_path.c_str());
-        if (dir == NULL)
-        {
-        }
-        else
-        {
-            struct dirent *ent;
-            while ((ent=readdir(dir))!=NULL)
-            {
-                printf(">>>>>>>>>>>All File : %s\n",ent->d_name);
-            }
-        }
+        // DIR *dir = opendir(m_file_path.c_str());
+        // if (dir == NULL)
+        // {
+        // }
+        // else
+        // {
+        //     struct dirent *ent;
+        //     while ((ent=readdir(dir))!=NULL)
+        //     {
+        //         printf(">>>>>>>>>>>All File : %s\n",ent->d_name);
+        //     }
+        // }
         
         // 打开新的日志文件autohallog
         m_write_stream.reset(new std::ofstream());
@@ -182,10 +245,10 @@ public:
             rollFile();
             m_file_write_offset = 0;
         }
-        m_write_stream->write(str.c_str(), str.length());
+        m_write_stream->write(str.c_str(), str.length());  
         m_write_stream->flush();
         m_file_write_offset += str.length();
-
+        fprintf(stderr, "文件写入：%s",str.c_str());
     }
 
     bool isAutoHalLogFile(const std::string & filename)
@@ -211,7 +274,7 @@ public:
             // status = mkdir("/home/cnd/mod1", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)
 
             mkdir(m_file_path.c_str(), S_IRWXU); 
-            fprintf(stderr, "创建文件夹%s",m_file_path.c_str());
+            fprintf(stderr, "创建文件夹: %s \n",m_file_path.c_str());
         }
         else
         {
@@ -338,7 +401,6 @@ public:
 
     void add(std::string logline)
     {
-        fprintf(stderr, "%s", "add log\n");
         if(m_pBuffer == nullptr)
         {
             fprintf(stderr, "%s", "Error Buffer\n");
@@ -356,9 +418,7 @@ public:
                 std::string logline;
                 while(m_pBuffer->tryPop(logline))
                 {
-                    fprintf(stderr, "Log Write start\n");
                     m_pFileWriter->writer(logline);
-                    fprintf(stderr, "Log Write end\n");
                 }
                 //fprintf(stderr, "Log Write time: %lu", m_last_write_time);
             }
@@ -378,6 +438,42 @@ private:
 
 
 static AutoHalLogWriter g_autohalLogWriter = AutoHalLogWriter();
+
+
+int autohal_log_to_file(int prio, const char* tag, const char* fmt, ...)
+{
+    int defaultPrio = prio;
+    va_list ap;
+    __attribute__((uninitialized)) char buf[LOG_BUF_SIZE];
+
+    va_start(ap, fmt);
+    vsnprintf(buf, LOG_BUF_SIZE, fmt, ap);
+    va_end(ap);
+
+    struct tm now;
+    time_t t = time(nullptr);
+
+    #if defined(_WIN32)
+    localtime_s(&now, &t);
+    #else
+    localtime_r(&t, &now);
+    #endif
+
+    char timestamp[32];
+    strftime(timestamp, sizeof(timestamp), "%m-%d %H:%M:%S", &now);
+
+    uint64_t tid = autohalGetThreadId();
+
+    char priority_char = 'D';
+
+    __attribute__((uninitialized)) char log_buf[LOG_BUF_SIZE+128];
+    sprintf(log_buf, "%s %5d %5" PRIu64 " %c %s: %s\n",
+        timestamp, getpid(), tid, priority_char, tag, buf);
+    
+    byd_auto_hal::g_autohalLogWriter.add(log_buf);
+    fprintf(stderr, "%s", log_buf);
+    return 0;
+}
 
 // void autohalLogWriterStart()
 // {

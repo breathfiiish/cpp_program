@@ -10,7 +10,8 @@
 #ifndef AUTO_LOGS_H
 #define AUTO_LOGS_H
 
-#include "utils/Log.h"
+//#include "utils/Log.h"
+#include "android/logger_write.h"
 #include "ConfigList.h"
 
 namespace byd_auto_hal {
@@ -19,19 +20,19 @@ static int loglevel = 2;
 static bool logprint = true;
 
 #ifndef ALOGD0
-#define ALOGD0(...) ALOGD_IF((loglevel >= 0), __VA_ARGS__);
+#define ALOGD0(...) AUTO_LOGD_IF((loglevel >= 0), __VA_ARGS__);
 #endif
 
 #ifndef ALOGD1
-#define ALOGD1(...) ALOGD_IF((logprint && loglevel >= 1), __VA_ARGS__);
+#define ALOGD1(...) AUTO_LOGD_IF((logprint && loglevel >= 1), __VA_ARGS__);
 #endif
 
 #ifndef ALOGD2
-#define ALOGD2(...) ALOGD_IF((logprint && loglevel >= 2), __VA_ARGS__);
+#define ALOGD2(...) AUTO_LOGD_IF((logprint && loglevel >= 2), __VA_ARGS__);
 #endif
 
 #ifndef ALOGD3
-#define ALOGD3(...) ALOGD_IF((logprint && loglevel >= 3), __VA_ARGS__);
+#define ALOGD3(...) AUTO_LOGD_IF((logprint && loglevel >= 3), __VA_ARGS__);
 #endif
 
 #ifndef START_LOG
