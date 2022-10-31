@@ -1,7 +1,6 @@
 #include "AutoLogFileWriter.h"
 
 #include <sys/time.h>
-#include <inttypes.h>
 
 #include <dirent.h>
 #include <stdlib.h>
@@ -18,17 +17,15 @@
 
 namespace byd_auto_hal {
 
-using namespace std;
-
 #define  LOG_BUF_SIZE 1024
 
 const int kLogFileCountMin = 1;
-const int kLogFileCountMax = 20;
+const int kLogFileCountMax = 45; // 45个日志文件
 
 const int kBufferSize = 500;
 
 const uint64_t kFileSize = 1024 * 1024 * 5; // 5MB
-const uint64_t kDurationTime = 1000 * 20 ; //200ms
+const uint64_t kDurationTime = 1000 * 20 ; //20ms
 
 const std::string kAutoHalLogFileName = "autohallog";
 const std::string kAutoHalLogFilePath = "/data/logs/autohallogs"; // !注意路径是否正确
@@ -37,10 +34,12 @@ volatile int autoLogFlag = 1;
 volatile int sysLogFlag = 0;
 char strAutoLogFlag[PROPERTY_VALUE_MAX];
 char strSysLogFlag[PROPERTY_VALUE_MAX];
+std::mutex gMutex;
+static bool gInitFlag = false;
 
 AutoLogFileWriter::AutoLogFileWriter():
     autoLogInitFlag(false)
-{ 
+{
 }
 
 void AutoLogFileWriter::addLog(const std::string & logline)
@@ -78,7 +77,7 @@ AutoLogFileWriter::~AutoLogFileWriter()
     std::this_thread::sleep_for(std::chrono::microseconds(50));
     m_write_thread.join();
     m_buffer.release();
-    m_filewriter.release(); 
+    m_filewriter.release();
 }
 
 extern "C" {
@@ -99,9 +98,7 @@ uint64_t autohalGetThreadId() {
 
 int _custom_log_write(int prio, const char* tag, const char* fmt, ...)
 {
-	if(prio == -1) return -1;
-    if(!gAutoLogWriter.autoLogInitFlag) 
-       gAutoLogWriter.autoLogInitFlag = gAutoLogWriter.initAutoLogger();
+    if(prio == -1) return -1; // 预留后续可能的扩展
     va_list ap;
     __attribute__((uninitialized)) char buf[LOG_BUF_SIZE];
 
@@ -118,7 +115,9 @@ int _custom_log_write(int prio, const char* tag, const char* fmt, ...)
     localtime_r(&t, &now);
     #endif
 
-    uint32_t milisec = (timestamp_now() % 1000000)/1000;
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    uint32_t milisec = (ts.tv_nsec)/1000000;
     char milisec_str[6];
     sprintf(milisec_str, ".%03d", milisec);
 
@@ -133,6 +132,15 @@ int _custom_log_write(int prio, const char* tag, const char* fmt, ...)
     __attribute__((uninitialized)) char log_buf[LOG_BUF_SIZE+128];
     sprintf(log_buf, "%s %5d %5" PRIu64 " %c %s: %s\n",
         timestamp, getpid(), tid, priority_char, tag, buf);
+    if(!gInitFlag)
+    {
+        gMutex.lock();
+        if(!gAutoLogWriter.autoLogInitFlag) {
+            gAutoLogWriter.autoLogInitFlag = gAutoLogWriter.initAutoLogger();
+            gInitFlag = gAutoLogWriter.autoLogInitFlag;
+        }
+        gMutex.unlock();
+    }
     gAutoLogWriter.addLog(log_buf);
     return 0;
 }
@@ -150,15 +158,7 @@ RingBuffer::RingBuffer(size_t const size) :
 
 void RingBuffer::push(const std::string& logline)
 {
-    m_rw_mutex.lock();
-    size_t write_index = m_write_index % m_size;
-    if((m_read_index % m_size == m_write_index % m_size) && (m_ring[write_index].written==1)) 
-    {
-        m_read_index++;
-    }
-    m_write_index++;
-    m_rw_mutex.unlock();
-
+    unsigned int write_index = m_write_index.fetch_add(1, std::memory_order_relaxed) % m_size;
     Item & item = m_ring[write_index];
     std::lock_guard<std::mutex> lg(item.flag);
     item.logline = logline;
@@ -166,7 +166,7 @@ void RingBuffer::push(const std::string& logline)
 
 }
 
-bool RingBuffer::tryPop(std::string& logline) 
+bool RingBuffer::tryPop(std::string& logline)
 {
     Item & item = m_ring[m_read_index % m_size];
     std::lock_guard<std::mutex> lg(item.flag);
@@ -194,7 +194,7 @@ void FileWriter::initFileContext()
     DIR *dir = opendir(m_file_path.c_str());
     if (dir == NULL)
     {
-        mkdir(m_file_path.c_str(), S_IRWXU); 
+        mkdir(m_file_path.c_str(), S_IRWXU);
         m_file_write_offset = -1;
         for(int i=0;i<=kLogFileCountMax;i++)
         {
@@ -210,7 +210,7 @@ void FileWriter::initFileContext()
             {
                 continue;
             }
-            else 
+            else
             {
                 std::string logname = ent->d_name;
                 if(isAutoHalLogFile(logname))
@@ -222,15 +222,14 @@ void FileWriter::initFileContext()
                     else {
                         remove((m_file_path + "/" +logname).c_str());
                     }
-                    
                 }
                 else if(logname == kAutoHalLogFileName){
-                    // 读文件 确定文件大小 
+                    // 读文件 确定文件大小
                     std::ifstream fileIn((m_file_path + "/" +logname), std::ios::binary|std::ios::in);
                     fileIn.seekg(0, std::ios::end);
                     size_t filesize = fileIn.tellg();
-                    if(filesize < kFileSize && filesize > 0) 
-                        m_file_write_offset = filesize; 
+                    if(filesize < kFileSize && filesize > 0)
+                        m_file_write_offset = filesize;
                     else {
                         remove((m_file_path + "/" +logname).c_str());
                         m_file_write_offset = -1;
@@ -255,7 +254,7 @@ void FileWriter::writer(const std::string & str)
         rollFile();
         m_file_write_offset = 0;
     }
-    m_write_stream->write(str.c_str(), str.length());  
+    m_write_stream->write(str.c_str(), str.length());
     m_write_stream->flush();
     m_file_write_offset += str.length();
 }
@@ -266,7 +265,7 @@ bool FileWriter::checkDir(const std::string & path)
     DIR *dir = opendir(path.c_str());
     if (dir == NULL)
         isDirExisted = false;
-    else 
+    else
         isDirExisted = true;
     closedir(dir);
     return isDirExisted;
@@ -282,7 +281,7 @@ bool FileWriter::isAutoHalLogFile(const std::string & filename)
 
 void FileWriter::rollFile()
 {
-    if(!checkDir(m_file_path)) 
+    if(!checkDir(m_file_path))
         initFileContext();
     // 结束本次日志文件写入
     if(m_write_stream) {

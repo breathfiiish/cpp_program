@@ -1,12 +1,14 @@
 #ifndef _AUTO_LOG_FILE_WRITER_H_
 #define _AUTO_LOG_FILE_WRITER_H_
 
+#include <inttypes.h>
 #include <utils/Log.h>
 #include <mutex>
 #include <memory>
 #include <thread>
 #include <vector>
 #include <fstream>
+#include <atomic>
 #include <cutils/properties.h>
 
 
@@ -14,7 +16,7 @@ namespace byd_auto_hal {
 
 extern "C" {
     uint64_t autohalGetThreadId();
-    int _custom_log_write(int prio, const char* tag, const char* fmt, ...); 
+    int _custom_log_write(int prio, const char* tag, const char* fmt, ...);
 }
 static uint64_t timestamp_now()
 {
@@ -92,7 +94,7 @@ public:
     {
       Item() : written(0)
       , logline("")
-      { 
+      {
       }
       mutable std::mutex flag;
       char written;
@@ -111,15 +113,14 @@ public:
 private:
     size_t const m_size;
     Item * m_ring;
-    mutable std::mutex m_rw_mutex;
-    unsigned int m_write_index;
+    std::atomic < unsigned int > m_write_index;
     unsigned int m_read_index;
 };
 
 
 class FileWriter {
 public:
-    FileWriter(std::string path, std::string filename); 
+    FileWriter(std::string path, std::string filename);
     void rollFile();
     void writer(const std::string & str);
 private:
@@ -135,7 +136,7 @@ private:
 };
 
 
-class AutoLogFileWriter 
+class AutoLogFileWriter
 {
 public:
     AutoLogFileWriter();
@@ -151,11 +152,11 @@ public:
         m_last_write_time = timestamp_now();
         m_buffer.reset(new RingBuffer(kBufferSize));
         m_filewriter.reset(new FileWriter(kAutoHalLogFilePath, kAutoHalLogFileName));
-        m_write_thread = std::thread(&AutoLogFileWriter::logWriteThread, this);      
-        if(m_buffer && m_filewriter) 
+        m_write_thread = std::thread(&AutoLogFileWriter::logWriteThread, this);
+        if(m_buffer && m_filewriter)
             return true;
-        else 
-            return false; 
+        else
+            return false;
     }
     void logWriteThread();
     void addLog(const std::string& logline);
@@ -167,7 +168,7 @@ private:
     std::unique_ptr < FileWriter > m_filewriter;
 };
 
-static AutoLogFileWriter gAutoLogWriter = AutoLogFileWriter();
+static AutoLogFileWriter gAutoLogWriter;
 }
 
 #endif
